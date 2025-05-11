@@ -8,17 +8,15 @@ import os
 from io import StringIO
 import re
 
-# --- Streamlit Configuration ---
 st.set_page_config(page_title="Electricity Demand Dashboard", layout="wide")
-st.title(f"⚡ Electricity Demand Dashboard – {date.today().year}")
+st.title(f"Electricity Demand Dashboard – {date.today().year}")
 
 st.markdown("""
-This dashboard was inspired by the April 2025 blackout that affected many areas. 
+This dashboard was inspired by the April 2025 blackout that affected many areas.
 It supports analysts and decision-makers by visualizing electricity demand, highlighting risk, and exploring energy generation mix.
 """)
 
-# --- Instructions Section ---
-with st.expander("ℹ️ How to Use This App"):
+with st.expander("How to Use This App"):
     st.markdown("""
     1. Click **Start Analysis** to load demand and generation data.
     2. Use **Detailed Demand Data** to view raw trends and changes.
@@ -27,11 +25,9 @@ with st.expander("ℹ️ How to Use This App"):
     5. Explore **Generation Breakdown** to understand energy source contributions.
     """)
 
-# --- Folder Access Helper ---
 def get_base_path(subfolder):
     return os.path.join("sample_data", subfolder)
 
-# --- Load Demand Data ---
 @st.cache_data(ttl=3600)
 def load_demand_data():
     base_path = get_base_path("demand")
@@ -61,7 +57,6 @@ def load_demand_data():
     df_all["Rolling Avg (30d)"] = df_all["Real"].rolling(window=30, min_periods=1).mean()
     return df_all
 
-# --- Load Generation Data ---
 @st.cache_data(ttl=3600)
 def load_generation_data():
     base_path = get_base_path("generation")
@@ -92,12 +87,11 @@ def load_generation_data():
         return pd.DataFrame()
     return pd.concat(all_data).dropna(subset=["Hora"]).sort_values("Hora")
 
-# --- Start Dashboard ---
 if "dashboard_active" not in st.session_state:
     st.session_state.dashboard_active = False
 
 if not st.session_state.dashboard_active:
-    if st.button("🚀 Start Analysis"):
+    if st.button("Start Analysis"):
         st.session_state.dashboard_active = True
 
 if st.session_state.dashboard_active:
@@ -109,10 +103,8 @@ if st.session_state.dashboard_active:
         st.error("No valid data found. Please check dataset folders.")
         st.stop()
 
-    # --- Detailed Demand Data ---
-    st.markdown("## 📊 Detailed Demand Data")
-    st.caption("Explore daily real and forecasted demand values, with conditional highlights for daily changes.")
-    with st.expander("🔎 Show Data Table"):
+    st.markdown("## Detailed Demand Data")
+    with st.expander("Show Data Table"):
         styled = data.copy().dropna()
         styled['Daily Change (%)'] = styled['Daily Change'] * 100
         styled['Daily Change (%)'] = styled['Daily Change (%)'].map(lambda x: f"{x:.2f}%")
@@ -126,25 +118,44 @@ if st.session_state.dashboard_active:
 
         st.data_editor(styled.style.applymap(highlight, subset=['Daily Change (%)']), use_container_width=True)
 
-    # --- Trend Visualization ---
-    st.markdown("## 📈 Trend Visualization")
-    st.caption("Visual comparison of real vs. forecasted electricity demand for selected dates.")
+    st.markdown("## Trend Visualization")
     unique_dates = sorted(list(set(data.index.date)))
-    start_day, end_day = st.date_input("Select day range:", value=(min(unique_dates), max(unique_dates)),
-                                       min_value=min(unique_dates), max_value=max(unique_dates))
+    start_day, end_day = st.date_input("Select day range:", value=(min(unique_dates), max(unique_dates)), min_value=min(unique_dates), max_value=max(unique_dates))
     range_data = data[(data.index.date >= start_day) & (data.index.date <= end_day)]
 
     if not range_data.empty:
         fig = px.line(range_data.reset_index(), x="Datetime", y=["Real", "Prevista"],
                       color_discrete_sequence=["#1f77b4", "#2ca02c"],
                       labels={"value": "MW", "Datetime": "Time", "variable": "Type"},
-                      title=f"Demand from {start_day} to {end_day}", template="plotly_white")
-        fig.update_yaxes(tickformat=",.0f")
+                      title=f"Demand from {start_day} to {end_day}",
+                      template="plotly_white")
+
+        blackout_date = pd.to_datetime("2025-04-27")
+        if blackout_date >= start_day and blackout_date <= end_day:
+            fig.add_vline(x=blackout_date, line_dash="dash", line_color="red",
+                          annotation_text="Blackout", annotation_position="top left")
+
         st.plotly_chart(fig, use_container_width=True)
 
-    # --- Key Performance Metrics ---
-    st.markdown("## 📌 Key Performance Metrics")
-    st.caption("Evaluate the demand performance using volatility, drop rates, and Value-at-Risk (VaR).")
+        st.markdown("### Daily Total Demand")
+        st.caption("Total real electricity demand per day within the selected date range.")
+        daily_totals = range_data.resample('D').sum(numeric_only=True)
+        fig_bar_total = px.bar(daily_totals.reset_index(), x="Datetime", y="Real",
+                               title="Total Daily Demand (MW)",
+                               labels={"Real": "Total MW", "Datetime": "Date"},
+                               template="plotly_white")
+        st.plotly_chart(fig_bar_total, use_container_width=True)
+
+        st.markdown("### Download Filtered Demand Data")
+        st.caption("Export the data shown above for external use.")
+        csv_download = range_data.reset_index().to_csv(index=False).encode('utf-8')
+        st.download_button(
+            label="Download CSV",
+            data=csv_download,
+            file_name=f"electricity_demand_{start_day}_to_{end_day}.csv",
+            mime='text/csv')
+
+    st.markdown("## Key Performance Metrics")
     day_data = data[data.index.date == end_day]
     latest = float(day_data['Real'].iloc[-1]) if not day_data.empty else float("nan")
     daily_change = day_data['Daily Change'].mean() if not day_data.empty else float("nan")
@@ -165,9 +176,7 @@ if st.session_state.dashboard_active:
         elif m == "VaR (95%)":
             cols[i].metric(m, f"{var_95*100:.2f}%")
 
-    # --- Generation Breakdown ---
-    st.markdown("## ⚙️ Generation Breakdown")
-    st.caption("Understand the composition of energy sources used to meet demand.")
+    st.markdown("## Generation Breakdown")
     gen_df["Date"] = gen_df["Hora"].dt.date
     selected_gen_date = st.selectbox("Select Date:", sorted(gen_df["Date"].unique()), index=len(gen_df["Date"].unique()) - 1)
     mix = ["Eólica", "Nuclear", "Carbón", "Ciclo combinado", "Solar fotovoltaica", "Solar térmica",
