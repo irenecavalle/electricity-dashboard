@@ -39,6 +39,7 @@ def load_demand_data():
             raw_lines = df.iloc[:, 0].tolist()
             clean_lines = [line.strip() for line in raw_lines if "," in line]
             parsed = pd.read_csv(StringIO("\n".join(clean_lines)), sep=",", quotechar='"')
+            parsed.columns = parsed.columns.str.strip()
             parsed.reset_index(inplace=True)
             parsed.rename(columns={"index": "Datetime"}, inplace=True)
             parsed["Datetime"] = pd.to_datetime(parsed["Datetime"], errors='coerce')
@@ -131,19 +132,38 @@ if st.session_state.dashboard_active:
                       template="plotly_white")
 
         blackout_date = pd.to_datetime("2025-04-27")
-        if blackout_date >= start_day and blackout_date <= end_day:
-            fig.add_vline(x=blackout_date, line_dash="dash", line_color="red",
-                          annotation_text="Blackout", annotation_position="top left")
+        if blackout_date.date() >= start_day and blackout_date.date() <= end_day:
+            fig.add_shape(
+                type="line",
+                x0=blackout_date,
+                x1=blackout_date,
+                y0=0,
+                y1=1,
+                line=dict(color="red", width=2, dash="dash"),
+                xref='x',
+                yref='paper'
+            )
+            fig.add_annotation(
+                x=blackout_date,
+                y=1,
+                text="Blackout",
+                showarrow=False,
+                yanchor="bottom",
+                xanchor="left"
+            )
 
         st.plotly_chart(fig, use_container_width=True)
 
         st.markdown("### Daily Total Demand")
         st.caption("Total real electricity demand per day within the selected date range.")
         daily_totals = range_data.resample('D').sum(numeric_only=True)
+
+        # ✅ Green bar chart
         fig_bar_total = px.bar(daily_totals.reset_index(), x="Datetime", y="Real",
                                title="Total Daily Demand (MW)",
                                labels={"Real": "Total MW", "Datetime": "Date"},
-                               template="plotly_white")
+                               template="plotly_white",
+                               color_discrete_sequence=["green"])
         st.plotly_chart(fig_bar_total, use_container_width=True)
 
         st.markdown("### Download Filtered Demand Data")
